@@ -99,4 +99,33 @@ class DebugView(APIView):
         except Exception as e:
             info['hsemotion_onnx'] = f'ERROR: {e}'
 
+        # Haar cascade test
+        try:
+            analytics_dir = os.path.dirname(os.path.abspath(__file__))
+            apps_dir = os.path.dirname(analytics_dir)
+            backend_dir = os.path.dirname(apps_dir)
+            cascade_path = os.path.join(backend_dir, 'ai_pipeline', 'haarcascade_frontalface_default.xml')
+            info['debug_cascade_path'] = cascade_path
+            info['debug_cascade_exists'] = os.path.exists(cascade_path)
+            
+            if os.path.exists(cascade_path):
+                haar = cv2.CascadeClassifier(cascade_path)
+                info['haar_cascade_loaded'] = not haar.empty()
+                
+                # Test detection on synthetic face
+                test_img = np.zeros((480, 640, 3), dtype=np.uint8)
+                test_img[:] = (60, 60, 60)
+                cv2.ellipse(test_img, (320, 240), (100, 130), 0, 0, 360, (180, 150, 130), -1)
+                cv2.ellipse(test_img, (285, 210), (18, 22), 0, 0, 360, (40, 40, 80), -1)
+                cv2.ellipse(test_img, (355, 210), (18, 22), 0, 0, 360, (40, 40, 80), -1)
+                
+                gray = cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                faces = haar.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+                info['haar_test_faces_detected'] = len(faces) if hasattr(faces, '__len__') else 0
+            else:
+                info['haar_cascade_loaded'] = False
+        except Exception as e:
+            info['haar_debug_error'] = str(e)
+
         return Response(info)

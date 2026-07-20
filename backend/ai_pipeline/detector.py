@@ -52,14 +52,15 @@ def _ensure_model() -> bool:
 
 class FaceDetector:
     """
-    Detects faces using MediaPipe Tasks API.
-    Downloads model on first use.
+    Detects faces using MediaPipe Tasks API or OpenCV Haar Cascade fallback.
     """
 
     def __init__(self, min_detection_confidence: float = 0.25):
         self.min_confidence = min_detection_confidence
         self._detector = None
+        self._haar = None
         self._init_detector()
+        self._init_haar()
 
     def _init_detector(self):
         if not _MP_AVAILABLE:
@@ -76,8 +77,21 @@ class FaceDetector:
             self._detector = mp_vision.FaceDetector.create_from_options(opts)
             logger.info(f"FaceDetector initialized. Model: {_FACE_DETECTOR_MODEL}")
         except Exception as e:
-            logger.error(f"FaceDetector init failed: {e}", exc_info=True)
+            logger.error(f"FaceDetector init failed (probably missing libGLESv2.so.2 on headless Render Linux): {e}")
             self._detector = None
+
+    def _init_haar(self):
+        _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+        cascade_path = os.path.join(_THIS_DIR, 'haarcascade_frontalface_default.xml')
+        if os.path.exists(cascade_path):
+            self._haar = cv2.CascadeClassifier(cascade_path)
+            if self._haar.empty():
+                logger.warning("Haar cascade loaded but empty.")
+                self._haar = None
+            else:
+                logger.info("OpenCV Haar cascade initialized successfully.")
+        else:
+            logger.warning(f"Haar cascade XML not found at {cascade_path}")
 
     def detect(self, frame_bgr: np.ndarray) -> list:
         """
@@ -87,44 +101,60 @@ class FaceDetector:
         if frame_bgr is None or frame_bgr.size == 0:
             return []
 
-        # Retry init if detector not ready
-        if self._detector is None and _MP_AVAILABLE:
-            logger.info("Detector not initialized — retrying init...")
-            self._init_detector()
+        # 1. Try MediaPipe first
+        if self._detector:
+            try:
+                h, w = frame_bgr.shape[:2]
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                frame_rgb = np.ascontiguousarray(frame_rgb)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                detection_result = self._detector.detect(mp_image)
+                
+                results = []
+                for det in (detection_result.detections or []):
+                    bb = det.bounding_box
+                    x = max(0, bb.origin_x)
+                    y = max(0, bb.origin_y)
+                    bw = min(bb.width, w - x)
+                    bh = min(bb.height, h - y)
+                    if bw <= 0 or bh <= 0:
+                        continue
+                    confidence = det.categories[0].score if det.categories else 0.5
+                    results.append({
+                        'bbox': (x, y, bw, bh),
+                        'confidence': float(confidence),
+                        'landmarks': None,
+                        'mesh_landmarks': None,
+                    })
+                if results:
+                    return results
+            except Exception as e:
+                logger.warning(f"MediaPipe runtime detection failed: {e}. Falling back to Haar.")
 
-        if self._detector is None:
-            logger.warning("Detector still not initialized — returning empty.")
-            return []
+        # 2. Fallback to OpenCV Haar Cascade
+        if self._haar:
+            try:
+                gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                faces = self._haar.detectMultiScale(
+                    gray, scaleFactor=1.1, minNeighbors=3,
+                    minSize=(30, 30), flags=cv2.CASCADE_SCALE_IMAGE
+                )
+                results = []
+                for (x, y, fw, fh) in faces:
+                    results.append({
+                        'bbox': (int(x), int(y), int(fw), int(fh)),
+                        'confidence': 0.85,
+                        'landmarks': None,
+                        'mesh_landmarks': None,
+                    })
+                if results:
+                    logger.info(f"OpenCV Haar detected {len(results)} face(s).")
+                    return results
+            except Exception as e:
+                logger.error(f"Haar cascade detection failed: {e}")
 
-        h, w = frame_bgr.shape[:2]
-        try:
-            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            frame_rgb = np.ascontiguousarray(frame_rgb)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
-            detection_result = self._detector.detect(mp_image)
-        except Exception as e:
-            logger.error(f"Detection error: {e}", exc_info=True)
-            return []
-
-        results = []
-        for det in (detection_result.detections or []):
-            bb = det.bounding_box
-            x = max(0, bb.origin_x)
-            y = max(0, bb.origin_y)
-            bw = min(bb.width, w - x)
-            bh = min(bb.height, h - y)
-            if bw <= 0 or bh <= 0:
-                continue
-            confidence = det.categories[0].score if det.categories else 0.5
-            results.append({
-                'bbox': (x, y, bw, bh),
-                'confidence': float(confidence),
-                'landmarks': None,
-                'mesh_landmarks': None,
-            })
-
-        logger.info(f"Detected {len(results)} face(s) in {h}x{w} frame.")
-        return results
+        return []
 
     def release(self):
         pass
