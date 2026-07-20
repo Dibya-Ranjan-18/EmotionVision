@@ -117,16 +117,21 @@ class FaceDetector:
         if frame_bgr is None or frame_bgr.size == 0:
             return []
 
-        h, w = frame_bgr.shape[:2]
+        # Lazy retry: if MediaPipe detector failed to init, try again
+        if self._mp_detector is None and _MP_AVAILABLE:
+            logger.info("Retrying MediaPipe detector initialization...")
+            try:
+                self._init_mp_tasks()
+            except Exception as e:
+                logger.error(f"Retry MediaPipe init failed: {e}")
 
         if self._mp_detector:
             try:
-                return self._detect_mp(frame_bgr, h, w)
+                return self._detect_mp(frame_bgr, *frame_bgr.shape[:2])
             except Exception as e:
                 logger.warning(f"MediaPipe detect error: {e}")
                 return []
 
-        # No detector available
         logger.warning("No face detector available. Returning empty results.")
         return []
 
