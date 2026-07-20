@@ -27,7 +27,7 @@ export function useSessionControl(videoRef, canvasRef) {
     let targetH = video.videoHeight || 480
     if (targetW <= 0 || targetH <= 0) return null
 
-    const maxDim = 480
+    const maxDim = 320
     if (targetW > maxDim) {
       const ratio = maxDim / targetW
       targetW = maxDim
