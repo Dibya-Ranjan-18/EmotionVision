@@ -36,13 +36,27 @@ class DebugView(APIView):
         except Exception as e:
             info['hsemotion_onnx'] = f'UNAVAILABLE: {e}'
 
-        # Test OpenCV Haar cascade
+        # Test OpenCV Haar cascade using bundled file
         try:
-            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            haar = cv2.CascadeClassifier(cascade_path)
-            info['haar_cascade'] = 'loaded' if not haar.empty() else 'EMPTY/FAILED'
+            import os as _os
+            ai_pipeline_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'ai_pipeline')
+            bundled_cascade = _os.path.join(ai_pipeline_dir, 'haarcascade_frontalface_default.xml')
+            info['bundled_cascade_path'] = bundled_cascade
+            info['bundled_cascade_exists'] = _os.path.exists(bundled_cascade)
+
+            if _os.path.exists(bundled_cascade):
+                haar = cv2.CascadeClassifier(bundled_cascade)
+                info['haar_cascade'] = 'loaded' if not haar.empty() else 'EMPTY/FAILED'
+            else:
+                # Fallback to cv2.data.haarcascades
+                cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                info['cv2_data_path'] = cascade_path
+                info['cv2_data_exists'] = _os.path.exists(cascade_path)
+                haar = cv2.CascadeClassifier(cascade_path)
+                info['haar_cascade'] = 'loaded' if not haar.empty() else 'EMPTY/FAILED'
         except Exception as e:
             info['haar_cascade'] = f'ERROR: {e}'
+            haar = None
 
         # Create a synthetic test image (128x128 gray gradient - no real face)
         try:
