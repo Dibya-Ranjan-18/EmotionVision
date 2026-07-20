@@ -11,10 +11,9 @@ PyMySQL>=1.0
 
 # Computer Vision & AI
 opencv-python-headless==4.10.0.84
-mediapipe>=0.10,<0.11
-hsemotion-onnx>=0.3.1  # Facial Emotion Recognition (ONNX-based, compatible with Python 3.14)
-onnxruntime>=1.15.0,<2.0
-onnx>=1.14.0
+mediapipe>=0.10
+hsemotion-onnx>=0.3.1
+onnxruntime>=1.17.0
 numpy>=1.24,<2.0
 
 # Image processing
