@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 # Confidence threshold below which we return "uncertain"
 CONFIDENCE_THRESHOLD = 35.0
 
-# Smoothing window — last N predictions per face
-SMOOTHING_WINDOW = 5
+# Smoothing window — last N predictions per face (set to 1 for instant reaction at low FPS)
+SMOOTHING_WINDOW = 1
 
 # Emotion display metadata
 EMOTION_META = {
