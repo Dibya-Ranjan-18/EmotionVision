@@ -2,7 +2,7 @@
 AI Pipeline – Face Detector
 Uses MediaPipe FaceDetector (Tasks API v0.10+) for multi-face detection,
 with FaceLandmarker for mesh landmarks.
-Falls back to OpenCV Haar cascade if MediaPipe is unavailable.
+MediaPipe models are downloaded on first use from Google's CDN.
 """
 
 import cv2
@@ -30,56 +30,61 @@ try:
     _MP_AVAILABLE = True
     logger.info(f"MediaPipe {mp.__version__} (Tasks API) available.")
 except ImportError as e:
-    logger.warning(f"MediaPipe Tasks API not available: {e}. Using OpenCV Haar fallback.")
+    logger.warning(f"MediaPipe Tasks API not available: {e}.")
 
-# Model asset paths — downloaded on first use
-_MODELS_DIR = os.path.join(os.path.dirname(__file__), '_models')
-_FACE_DETECTOR_MODEL  = os.path.join(_MODELS_DIR, 'blaze_face_short_range.tflite')
+# Model asset paths — downloaded on first use to a writable /tmp dir (works on Render)
+_MODELS_DIR = os.environ.get('MEDIAPIPE_MODELS_DIR', '/tmp/mediapipe_models')
+_FACE_DETECTOR_MODEL = os.path.join(_MODELS_DIR, 'blaze_face_short_range.tflite')
 _FACE_LANDMARKER_MODEL = os.path.join(_MODELS_DIR, 'face_landmarker.task')
 
 _MODEL_URLS = {
-    _FACE_DETECTOR_MODEL:  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
-    _FACE_LANDMARKER_MODEL:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+    _FACE_DETECTOR_MODEL: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+    _FACE_LANDMARKER_MODEL: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
 }
 
 
-def _ensure_model(path: str, url: str):
+def _ensure_model(path: str, url: str) -> bool:
     """Download model file if it doesn't exist."""
-    if not os.path.exists(path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        logger.info(f"Downloading MediaPipe model from {url}…")
-        try:
-            urllib.request.urlretrieve(url, path)
-            logger.info(f"Downloaded: {path}")
-        except Exception as e:
-            logger.warning(f"Could not download model: {e}")
-            return False
-    return True
+    if os.path.exists(path) and os.path.getsize(path) > 1000:
+        return True
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    logger.info(f"Downloading MediaPipe model: {os.path.basename(path)} ...")
+    try:
+        urllib.request.urlretrieve(url, path)
+        size_kb = os.path.getsize(path) // 1024
+        logger.info(f"Downloaded {os.path.basename(path)} ({size_kb} KB)")
+        return True
+    except Exception as e:
+        logger.error(f"Could not download model from {url}: {e}")
+        if os.path.exists(path):
+            os.remove(path)
+        return False
 
 
 class FaceDetector:
     """
-    Detects faces using MediaPipe Tasks API (v0.10+) or OpenCV Haar fallback.
-    Returns list of face dicts with bbox, confidence, and landmarks.
+    Detects faces using MediaPipe Tasks API (v0.10+).
+    Downloads model files on first use if not cached.
     """
 
-    def __init__(self, min_detection_confidence: float = 0.5):
+    def __init__(self, min_detection_confidence: float = 0.25):
         self.min_confidence = min_detection_confidence
-        self._mp_detector    = None
-        self._mp_landmarker  = None
-        self._haar = None
+        self._mp_detector = None
+        self._mp_landmarker = None
         self._init_detector()
 
     def _init_detector(self):
-        self._init_haar()  # Always initialize Haar cascade fallback
         if _MP_AVAILABLE:
             try:
                 self._init_mp_tasks()
+                logger.info("FaceDetector ready using MediaPipe.")
             except Exception as e:
-                logger.warning(f"MediaPipe Tasks init failed ({e}), using Haar fallback.")
+                logger.error(f"MediaPipe FaceDetector init failed: {e}")
+        else:
+            logger.error("MediaPipe is not available. Face detection will return empty results.")
 
     def _init_mp_tasks(self):
-        # Face detector
+        # Face detector model
         if _ensure_model(_FACE_DETECTOR_MODEL, _MODEL_URLS[_FACE_DETECTOR_MODEL]):
             opts = mp_vision.FaceDetectorOptions(
                 base_options=mp_base_options.BaseOptions(model_asset_path=_FACE_DETECTOR_MODEL),
@@ -88,49 +93,23 @@ class FaceDetector:
             self._mp_detector = mp_vision.FaceDetector.create_from_options(opts)
             logger.info("MediaPipe FaceDetector (Tasks) initialised.")
 
-        # Face landmarker
+        # Face landmarker model (for mesh landmarks used in behavior analysis)
         if _ensure_model(_FACE_LANDMARKER_MODEL, _MODEL_URLS[_FACE_LANDMARKER_MODEL]):
             lm_opts = mp_vision.FaceLandmarkerOptions(
                 base_options=mp_base_options.BaseOptions(model_asset_path=_FACE_LANDMARKER_MODEL),
                 num_faces=5,
-                min_face_detection_confidence=0.5,
-                min_face_presence_score=0.5,
-                min_tracking_confidence=0.5,
+                min_face_detection_confidence=0.25,
+                min_face_presence_score=0.25,
+                min_tracking_confidence=0.25,
                 output_face_blendshapes=False,
                 output_facial_transformation_matrixes=False,
             )
             self._mp_landmarker = mp_vision.FaceLandmarker.create_from_options(lm_opts)
             logger.info("MediaPipe FaceLandmarker (Tasks) initialised.")
 
-    def _init_haar(self):
-        # Try bundled cascade XML first (works on all platforms including OpenCV 5.x on Linux)
-        _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-        bundled = os.path.join(_THIS_DIR, 'haarcascade_frontalface_default.xml')
-        cascade_path = None
-
-        if os.path.exists(bundled):
-            cascade_path = bundled
-            logger.info(f"Using bundled Haar cascade: {bundled}")
-        elif cv2.data.haarcascades:
-            fallback = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            if os.path.exists(fallback):
-                cascade_path = fallback
-                logger.info(f"Using OpenCV data Haar cascade: {fallback}")
-
-        if cascade_path:
-            self._haar = cv2.CascadeClassifier(cascade_path)
-            if self._haar.empty():
-                logger.warning("Haar cascade loaded but appears empty!")
-                self._haar = None
-            else:
-                logger.info("OpenCV Haar cascade initialised successfully.")
-        else:
-            logger.warning("No Haar cascade XML found. Face detection will rely on MediaPipe only.")
-            self._haar = None
-
     # ------------------------------------------------------------------
 
-    def detect(self, frame_bgr: np.ndarray) -> list[dict]:
+    def detect(self, frame_bgr: np.ndarray) -> list:
         """
         Detect faces in a BGR frame.
         Returns list of { bbox, confidence, landmarks, mesh_landmarks }.
@@ -139,19 +118,17 @@ class FaceDetector:
             return []
 
         h, w = frame_bgr.shape[:2]
-        results = []
 
         if self._mp_detector:
             try:
-                results = self._detect_mp(frame_bgr, h, w)
+                return self._detect_mp(frame_bgr, h, w)
             except Exception as e:
-                logger.warning(f"MediaPipe detect failed at runtime ({e}), falling back to Haar cascade.")
+                logger.warning(f"MediaPipe detect error: {e}")
+                return []
 
-        # Fallback to OpenCV Haar cascade if MediaPipe returns 0 detections!
-        if not results and self._haar:
-            results = self._detect_haar(frame_bgr)
-
-        return results
+        # No detector available
+        logger.warning("No face detector available. Returning empty results.")
+        return []
 
     def _detect_mp(self, frame_bgr, h, w):
         """MediaPipe Tasks-based detection."""
@@ -160,56 +137,41 @@ class FaceDetector:
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
         detection_result = self._mp_detector.detect(mp_image)
-        mesh_per_face = []
 
-        if self._mp_landmarker:
+        results = []
+        for det in detection_result.detections:
+            bbox_mp = det.bounding_box
+            x = max(0, bbox_mp.origin_x)
+            y = max(0, bbox_mp.origin_y)
+            bw = min(bbox_mp.width, w - x)
+            bh = min(bbox_mp.height, h - y)
+
+            if bw <= 0 or bh <= 0:
+                continue
+
+            confidence = det.categories[0].score if det.categories else 0.5
+
+            # Get mesh landmarks if landmarker is available
+            mesh_landmarks = self._get_mesh_landmarks(frame_rgb, h, w)
+
+            results.append({
+                'bbox': (x, y, bw, bh),
+                'confidence': float(confidence),
+                'landmarks': None,
+                'mesh_landmarks': mesh_landmarks,
+            })
+
+        return results
+
+    def _get_mesh_landmarks(self, frame_rgb, h, w):
+        """Get face mesh landmarks using FaceLandmarker."""
+        if not self._mp_landmarker:
+            return None
+        try:
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
             lm_result = self._mp_landmarker.detect(mp_image)
             if lm_result.face_landmarks:
-                for face_lm in lm_result.face_landmarks:
-                    pts = [(lm.x * w, lm.y * h, lm.z) for lm in face_lm]
-                    mesh_per_face.append(pts)
-
-        results = []
-        if detection_result.detections:
-            for idx, det in enumerate(detection_result.detections):
-                bb = det.bounding_box
-                x  = max(0, bb.origin_x)
-                y  = max(0, bb.origin_y)
-                bw = min(bb.width,  w - x)
-                bh = min(bb.height, h - y)
-
-                score = det.categories[0].score if det.categories else 0.0
-
-                results.append({
-                    'bbox': (x, y, bw, bh),
-                    'confidence': float(score),
-                    'landmarks': {},
-                    'mesh_landmarks': mesh_per_face[idx] if idx < len(mesh_per_face) else None,
-                })
-
-        return results
-
-    def _detect_haar(self, frame_bgr):
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        # Apply histogram equalization for low-light enhancement
-        gray = cv2.equalizeHist(gray)
-        faces = self._haar.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=3,
-            minSize=(30, 30), flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        results = []
-        for (x, y, fw, fh) in faces:
-            results.append({
-                'bbox': (int(x), int(y), int(fw), int(fh)),
-                'confidence': 0.85,
-                'landmarks': None,
-                'mesh_landmarks': None,
-            })
-        return results
-
-    def release(self):
-        """Release MediaPipe resources."""
-        if self._mp_detector:
-            self._mp_detector.close()
-        if self._mp_landmarker:
-            self._mp_landmarker.close()
+                return lm_result.face_landmarks[0]
+        except Exception as e:
+            logger.debug(f"Landmarker error: {e}")
+        return None
