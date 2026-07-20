@@ -115,13 +115,17 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS – allow React dev server
+# CORS configuration
+extra_cors = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else []
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-]
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # allow all in dev
+    "https://emotionvision.vercel.app",
+] + [origin.strip() for origin in extra_cors if origin.strip()]
+
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True') == 'True' or DEBUG
+
 
 # Django REST Framework
 REST_FRAMEWORK = {
