@@ -91,7 +91,7 @@ class BehaviorAnalyser:
             }
         """
         if not mesh_landmarks:
-            return self._empty_result(face_count, face_present=False)
+            return self._empty_result(face_count, face_present=(face_count > 0))
 
         h, w = frame_shape[:2]
         pts = np.array([(x, y) for x, y, z in mesh_landmarks], dtype=np.float32)
