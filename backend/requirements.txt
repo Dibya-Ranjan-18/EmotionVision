@@ -13,7 +13,9 @@ PyMySQL>=1.0
 opencv-python>=4.8
 mediapipe>=0.10
 hsemotion-onnx>=0.3.1
-onnxruntime>=1.15.0
+onnxruntime>=1.15.0,<2.0
+onnx>=1.14.0,<1.17
+ml_dtypes>=0.3.0,<0.5.0
 numpy>=1.24,<2.0
 
 # Image processing
