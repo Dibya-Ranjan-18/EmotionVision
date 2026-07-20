@@ -1,6 +1,6 @@
 """
-Diagnostic endpoint to test face detection directly on Render backend.
-GET /api/debug/ — Returns system info and face detection test results.
+Diagnostic endpoint - GET /api/debug/
+Tests MediaPipe Solutions API face detection with a synthetic test image.
 """
 import sys
 import os
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class DebugView(APIView):
-    """GET /api/debug/ — returns AI pipeline diagnostics."""
+    """GET /api/debug/ — AI pipeline diagnostics."""
 
     def get(self, request):
         info = {
@@ -22,52 +22,49 @@ class DebugView(APIView):
             'opencv': cv2.__version__,
         }
 
-        # Test MediaPipe availability
+        # MediaPipe Solutions API test
         try:
             import mediapipe as mp
             info['mediapipe'] = mp.__version__
-        except Exception as e:
-            info['mediapipe'] = f'UNAVAILABLE: {e}'
+            info['mediapipe_solutions_face_detection'] = str(mp.solutions.face_detection)
 
-        # Test HSEmotionONNX
+            # Try init
+            fd = mp.solutions.face_detection.FaceDetection(
+                model_selection=1,
+                min_detection_confidence=0.1,
+            )
+            info['face_detection_init'] = 'SUCCESS'
+            fd.close()
+        except Exception as e:
+            info['mediapipe_error'] = str(e)
+
+        # hsemotion test
         try:
             from hsemotion_onnx.facial_emotions import HSEmotionRecognizer
             info['hsemotion_onnx'] = 'available'
         except Exception as e:
             info['hsemotion_onnx'] = f'UNAVAILABLE: {e}'
 
-        # Check MediaPipe models directory (/tmp/mediapipe_models)
-        models_dir = os.environ.get('MEDIAPIPE_MODELS_DIR', '/tmp/mediapipe_models')
-        info['models_dir'] = models_dir
-        info['models_dir_exists'] = os.path.exists(models_dir)
-        if os.path.exists(models_dir):
-            info['model_files'] = os.listdir(models_dir)
-        else:
-            info['model_files'] = []
-
-        # Try to download models now
+        # Test FaceDetector from our pipeline
         try:
-            from ai_pipeline.detector import _ensure_model, _FACE_DETECTOR_MODEL, _FACE_LANDMARKER_MODEL, _MODEL_URLS
-            info['face_detector_model_path'] = _FACE_DETECTOR_MODEL
-            info['face_detector_exists'] = os.path.exists(_FACE_DETECTOR_MODEL)
+            from ai_pipeline.detector import FaceDetector, _MP_AVAILABLE
+            info['mp_available_flag'] = _MP_AVAILABLE
+            fd = FaceDetector(min_detection_confidence=0.1)
+            info['face_detection_initialized'] = fd._face_detection is not None
+            info['face_mesh_initialized'] = fd._face_mesh is not None
 
-            if not os.path.exists(_FACE_DETECTOR_MODEL):
-                info['download_attempt'] = 'downloading...'
-                ok = _ensure_model(_FACE_DETECTOR_MODEL, _MODEL_URLS[_FACE_DETECTOR_MODEL])
-                info['download_result'] = 'success' if ok else 'FAILED'
-                info['face_detector_exists_after'] = os.path.exists(_FACE_DETECTOR_MODEL)
-            else:
-                info['download_attempt'] = 'skipped (already exists)'
-        except Exception as e:
-            info['download_error'] = str(e)
+            # Test on a synthetic 640x480 image with a skin-colored ellipse
+            test_frame = np.ones((480, 640, 3), dtype=np.uint8) * 80  # dark background
+            cv2.ellipse(test_frame, (320, 240), (100, 130), 0, 0, 360, (180, 150, 130), -1)
+            cv2.ellipse(test_frame, (285, 210), (18, 22), 0, 0, 360, (80, 60, 50), -1)
+            cv2.ellipse(test_frame, (355, 210), (18, 22), 0, 0, 360, (80, 60, 50), -1)
 
-        # Try to initialize FaceDetector directly
-        try:
-            from ai_pipeline.detector import FaceDetector
-            fd = FaceDetector()
-            info['detector_mp_detector'] = 'initialized' if fd._mp_detector else 'None (FAILED)'
-            info['detector_mp_landmarker'] = 'initialized' if fd._mp_landmarker else 'None'
+            detections = fd.detect(test_frame)
+            info['synthetic_test_detections'] = len(detections)
+            fd.release()
         except Exception as e:
-            info['detector_init_error'] = str(e)
+            import traceback
+            info['face_detector_error'] = str(e)
+            info['face_detector_traceback'] = traceback.format_exc()
 
         return Response(info)
