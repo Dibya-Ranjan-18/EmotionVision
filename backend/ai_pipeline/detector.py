@@ -103,9 +103,30 @@ class FaceDetector:
             logger.info("MediaPipe FaceLandmarker (Tasks) initialised.")
 
     def _init_haar(self):
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self._haar = cv2.CascadeClassifier(cascade_path)
-        logger.info("OpenCV Haar cascade initialised.")
+        # Try bundled cascade XML first (works on all platforms including OpenCV 5.x on Linux)
+        _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+        bundled = os.path.join(_THIS_DIR, 'haarcascade_frontalface_default.xml')
+        cascade_path = None
+
+        if os.path.exists(bundled):
+            cascade_path = bundled
+            logger.info(f"Using bundled Haar cascade: {bundled}")
+        elif cv2.data.haarcascades:
+            fallback = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            if os.path.exists(fallback):
+                cascade_path = fallback
+                logger.info(f"Using OpenCV data Haar cascade: {fallback}")
+
+        if cascade_path:
+            self._haar = cv2.CascadeClassifier(cascade_path)
+            if self._haar.empty():
+                logger.warning("Haar cascade loaded but appears empty!")
+                self._haar = None
+            else:
+                logger.info("OpenCV Haar cascade initialised successfully.")
+        else:
+            logger.warning("No Haar cascade XML found. Face detection will rely on MediaPipe only.")
+            self._haar = None
 
     # ------------------------------------------------------------------
 
