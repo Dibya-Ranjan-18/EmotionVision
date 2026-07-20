@@ -71,14 +71,12 @@ class FaceDetector:
         self._init_detector()
 
     def _init_detector(self):
+        self._init_haar()  # Always initialize Haar cascade fallback
         if _MP_AVAILABLE:
             try:
                 self._init_mp_tasks()
             except Exception as e:
                 logger.warning(f"MediaPipe Tasks init failed ({e}), using Haar fallback.")
-                self._init_haar()
-        else:
-            self._init_haar()
 
     def _init_mp_tasks(self):
         # Face detector
@@ -122,7 +120,11 @@ class FaceDetector:
         h, w = frame_bgr.shape[:2]
 
         if self._mp_detector:
-            return self._detect_mp(frame_bgr, h, w)
+            try:
+                return self._detect_mp(frame_bgr, h, w)
+            except Exception as e:
+                logger.warning(f"MediaPipe detect failed at runtime ({e}), falling back to Haar cascade.")
+                return self._detect_haar(frame_bgr)
         else:
             return self._detect_haar(frame_bgr)
 

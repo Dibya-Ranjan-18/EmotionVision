@@ -54,8 +54,21 @@ class ProcessFrameView(APIView):
             return Response({'error': 'Failed to decode frame'}, status=400)
 
         # --- Run AI pipeline ---
-        pipeline = get_pipeline(session_id)
-        result = pipeline.process_frame(frame_bgr)
+        try:
+            pipeline = get_pipeline(session_id)
+            result = pipeline.process_frame(frame_bgr)
+        except Exception as e:
+            logger.error(f"Error processing frame: {e}", exc_info=True)
+            return Response({
+                'session_id': session_id,
+                'frame_number': frame_num,
+                'face_count': 0,
+                'fps': 0,
+                'processing_time_ms': 0,
+                'faces': [],
+                'primary': None,
+                'timestamp': timezone.now().isoformat(),
+            })
 
         # --- Persist to DB ---
         primary = result.get('primary')
