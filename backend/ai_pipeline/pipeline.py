@@ -24,7 +24,7 @@ class EmotionPipeline:
 
     def __init__(self, session_id: int):
         self.session_id = session_id
-        self._detector = FaceDetector(min_detection_confidence=0.5)
+        self._detector = FaceDetector(min_detection_confidence=0.25)
         self._preprocessor = ImagePreprocessor(padding_ratio=0.2)
         self._emotion_analyser = get_analyser(session_id)
         self._behavior_analyser = BehaviorAnalyser()

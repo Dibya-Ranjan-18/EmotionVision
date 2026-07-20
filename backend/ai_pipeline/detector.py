@@ -163,9 +163,11 @@ class FaceDetector:
 
     def _detect_haar(self, frame_bgr):
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        # Apply histogram equalization for low-light enhancement
+        gray = cv2.equalizeHist(gray)
         faces = self._haar.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5,
-            minSize=(40, 40), flags=cv2.CASCADE_SCALE_IMAGE
+            gray, scaleFactor=1.1, minNeighbors=3,
+            minSize=(30, 30), flags=cv2.CASCADE_SCALE_IMAGE
         )
         results = []
         for (x, y, fw, fh) in faces:
