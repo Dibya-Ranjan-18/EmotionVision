@@ -6,7 +6,7 @@ import { useRef, useCallback } from 'react'
 import { useSession } from '../context/SessionContext'
 import { startSession, stopSession, processFrame } from '../services/api'
 
-const FRAME_INTERVAL_MS = 50 // ~20 fps to backend (near real-time)
+const FRAME_INTERVAL_MS = 200 // 5 fps stream (optimal for REST API)
 
 export function useSessionControl(videoRef, canvasRef) {
   const { state, sessionStarting, sessionStarted, sessionStopping, sessionStopped,
@@ -21,27 +21,31 @@ export function useSessionControl(videoRef, canvasRef) {
   // ---------------------------------------------------------------
   const captureFrame = useCallback(() => {
     const video = videoRef.current
-    if (!video || video.readyState < 2) return null
+    if (!video) return null
 
     let targetW = video.videoWidth || 640
     let targetH = video.videoHeight || 480
-    const maxDim = 480
+    if (targetW <= 0 || targetH <= 0) return null
 
+    const maxDim = 480
     if (targetW > maxDim) {
       const ratio = maxDim / targetW
       targetW = maxDim
       targetH = Math.round(targetH * ratio)
     }
 
-    const offscreen = document.createElement('canvas')
-    offscreen.width  = targetW
-    offscreen.height = targetH
-    const ctx = offscreen.getContext('2d')
-    // Draw mirrored (match what user sees)
-    ctx.translate(offscreen.width, 0)
-    ctx.scale(-1, 1)
-    ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height)
-    return offscreen.toDataURL('image/jpeg', 0.5)
+    try {
+      const offscreen = document.createElement('canvas')
+      offscreen.width  = targetW
+      offscreen.height = targetH
+      const ctx = offscreen.getContext('2d')
+      ctx.translate(offscreen.width, 0)
+      ctx.scale(-1, 1)
+      ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height)
+      return offscreen.toDataURL('image/jpeg', 0.5)
+    } catch (e) {
+      return null
+    }
   }, [videoRef])
 
   // ---------------------------------------------------------------
