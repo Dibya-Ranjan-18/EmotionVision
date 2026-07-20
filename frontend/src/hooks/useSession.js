@@ -42,7 +42,7 @@ export function useSessionControl(videoRef, canvasRef) {
       ctx.translate(offscreen.width, 0)
       ctx.scale(-1, 1)
       ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height)
-      return offscreen.toDataURL('image/jpeg', 0.5)
+      return offscreen.toDataURL('image/jpeg', 0.4)
     } catch (e) {
       return null
     }
@@ -76,7 +76,12 @@ export function useSessionControl(videoRef, canvasRef) {
           drawBoundingBoxes(canvasRef.current, result, videoRef.current)
         }
       } catch (err) {
-        console.warn('Frame processing error:', err?.message)
+        console.warn('Frame processing error:', err)
+        if (isRunningRef.current) {
+          const status = err?.response?.status
+          const errMsg = err?.response?.data?.error || err?.message || 'Network error'
+          setError(`Frame error (${status || 'API'}): ${errMsg}`)
+        }
       } finally {
         // Schedule next frame ONLY after previous request is finished!
         if (isRunningRef.current) {
@@ -87,7 +92,7 @@ export function useSessionControl(videoRef, canvasRef) {
 
     // Start loop
     sendNextFrame()
-  }, [captureFrame, frameResult, canvasRef, videoRef])
+  }, [captureFrame, frameResult, canvasRef, videoRef, setError])
 
   const stopFrameLoop = useCallback(() => {
     isRunningRef.current = false
