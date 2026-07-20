@@ -118,19 +118,24 @@ class FaceDetector:
             return []
 
         h, w = frame_bgr.shape[:2]
+        results = []
 
         if self._mp_detector:
             try:
-                return self._detect_mp(frame_bgr, h, w)
+                results = self._detect_mp(frame_bgr, h, w)
             except Exception as e:
                 logger.warning(f"MediaPipe detect failed at runtime ({e}), falling back to Haar cascade.")
-                return self._detect_haar(frame_bgr)
-        else:
-            return self._detect_haar(frame_bgr)
+
+        # Fallback to OpenCV Haar cascade if MediaPipe returns 0 detections!
+        if not results and self._haar:
+            results = self._detect_haar(frame_bgr)
+
+        return results
 
     def _detect_mp(self, frame_bgr, h, w):
         """MediaPipe Tasks-based detection."""
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        frame_rgb = np.ascontiguousarray(frame_rgb)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
         detection_result = self._mp_detector.detect(mp_image)
